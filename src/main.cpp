@@ -7,59 +7,6 @@
 #include <SPIFFS.h>
 #include <vector>
 
-/********************************************************************
- *  Webpage template – stored in flash (PROGMEM)
- ********************************************************************/
-const char PROGMEM pageTemplate[] = R"=====(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Uptime‑Kuma Monitor</title>
-</head>
-<body>
-  <h1>Configure</h1>
-  <form method="POST" action="/config">
-    <!-- Wi‑Fi fields -->
-    <label>SSID: <input type="text" name="ssid" value="%s" /></label><br/>
-    <label>Password: <input type="password" name="pass" value="%s" /></label><br/>
-    <label>Poll interval (s): <input type="number" name="interval" value="%d" /></label><br/><br/>
-
-    <!-- Instance fields – generated in the handler loop -->
-  
-  <!-- Button to add a new instance (JavaScript) -->
-  <button type="button" onclick="addInstance()">Add instance</button><br/><br/>
-
-  <input type="submit" value="Save" /></form>
-  <form method="POST" action="/reboot"><input type="submit" value="Reboot" /></form>
-
-  <!-- JavaScript to add a new instance dynamically -->
-  <script>
-    function addInstance() {
-      var form = document.querySelector('form');
-      var i = form.querySelectorAll('h3').length;
-      var h = document.createElement('h3');
-      h.textContent = 'Instance ' + (i + 1);
-      form.appendChild(h);
-
-      var labels = ['Name','URL'];
-      var names  = ['name','url'];
-      for (var j = 0; j < labels.length; j++) {
-        var label = document.createElement('label');
-        label.textContent = labels[j] + ': ';
-        var input = document.createElement('input');
-        input.type = 'text';
-        input.name = names[j] + i;
-        label.appendChild(input);
-        form.appendChild(label);
-        form.appendChild(document.createElement('br'));
-      }
-    }
-  </script>
-</body>
-</html>
-)=====";
-
 /* ----------- constants ------------------------------------------- */
 // hotspot‑config
 const char*  AP_SSID       = "ESP32_Hotspot";
@@ -83,13 +30,14 @@ const uint8_t wifiConnectTimeout = 30; // seconds
 const uint8_t greenPin = 22;  // GPIO‑pin green LED
 const uint8_t redPin   = 23;  // GPIO‑pin red LED
 
-const uint8_t blinkIntervalMs = 500;
+const uint16_t blinkIntervalMs = 500;
 
 /* ----------- Structs ---------------------------------------------- */
 struct Instance {       // Uptime-Kuma instance
+  String id;            // UUID of instance
   String name;          // Instance name
-  String url;           // Uptime‑Kuma endpoint URL
-  String apiKey;        // API-Key
+  String endpoint;      // Uptime‑Kuma endpoint URL
+  String apikey;        // API-Key
 };
 
 struct Config {
@@ -117,6 +65,10 @@ WebServer server(80);
 /* ----------- function declarations -------------------------------- */
 void startHotspot();
 void setupWifi();
+JsonDocument getWifiConfig();
+JsonDocument setWifiConfig(String settingsJSON);
+JsonDocument getInstancesConfig(JsonDocument doc);
+JsonDocument setInstancesConfig(String settingsJSON);
 bool writeConfig();
 bool readConfig();
 void setupLEDs();
@@ -183,20 +135,63 @@ void setupWifi() {
   }
 }
 
+JsonDocument deserializeInputJSON(String settingsJSON) {
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, settingsJSON);
+  if (err) { Serial.print("[ERROR] ❌  JSON parse error: "); Serial.println(err.c_str()); return getWifiConfig(); }
+  return doc;
+}
+
+JsonDocument getWifiConfig() {
+  JsonDocument doc;
+  doc["ssid"]      = cfg.wifi_ssid;
+  doc["password"]  = cfg.wifi_pass;
+  return doc;
+}
+
+JsonDocument setWifiConfig(String settingsJSON) {
+  JsonDocument doc = deserializeInputJSON(settingsJSON);
+
+  cfg.wifi_ssid     = doc["ssid"] | "";
+  cfg.wifi_pass     = doc["password"] | "";
+
+  Serial.println("[DEBUG] Wifi settings set: " + cfg.wifi_ssid + " / " + cfg.wifi_pass);
+
+  return doc;
+}
+
+JsonDocument getInstancesConfig(JsonDocument doc) {
+  JsonArray arr = doc["instances"].to<JsonArray>();
+  for (const auto &inst : cfg.instances) {
+    JsonObject obj = arr.add<JsonObject>();
+    obj["id"]        = inst.id;
+    obj["name"]      = inst.name;
+    obj["endpoint"]  = inst.endpoint;
+    obj["apikey"]    = inst.apikey;
+  }
+  return doc;
+}
+
+void setInstanceConfig(String settingsJSON) {
+  JsonDocument doc = deserializeInputJSON(settingsJSON);
+  cfg.instances.clear();
+  JsonArray arr = doc["instances"].as<JsonArray>();
+  for (JsonObject obj : arr) {
+    Instance inst;
+    inst.id          = obj["id"] | "";
+    inst.name        = obj["name"] | "";
+    inst.endpoint    = obj["endpoint"] | "";
+    inst.apikey      = obj["apikey"] | "";
+    cfg.instances.push_back(inst);
+  }
+}
+
 // configuration read/write
 bool writeConfig() {
   Serial.println("[INFO] Writing config to SPIFFS");
-  StaticJsonDocument<1024> doc;
-  doc["wifi_ssid"]     = cfg.wifi_ssid;
-  doc["wifi_pass"]     = cfg.wifi_pass;
-  doc["poll_interval"] = cfg.pollInterval;
-
-  JsonArray arr = doc.createNestedArray("instances");
-  for (const auto &inst : cfg.instances) {
-    JsonObject obj = arr.createNestedObject();
-    obj["name"]      = inst.name;
-    obj["url"]       = inst.url;
-  }
+  JsonDocument doc = getWifiConfig();
+  // Add the Uptime Kuma instances config
+  doc = getInstancesConfig(doc);
 
   File f = SPIFFS.open("/config.json", "w");
   if (!f) { Serial.println("[ERROR] ❌  Cannot open config.json for writing"); return false; }
@@ -216,22 +211,8 @@ bool readConfig() {
   std::unique_ptr<char[]> buf(new char[size]);
   f.readBytes(buf.get(), size);
 
-  StaticJsonDocument<1024> doc;
-  DeserializationError err = deserializeJson(doc, buf.get());
-  if (err) { Serial.print("[ERROR] ❌  JSON parse error: "); Serial.println(err.c_str()); return false; }
-
-  cfg.wifi_ssid     = doc["wifi_ssid"] | "";
-  cfg.wifi_pass     = doc["wifi_pass"] | "";
-  cfg.pollInterval  = doc["poll_interval"] | 15;
-
-  cfg.instances.clear();
-  JsonArray arr = doc["instances"].as<JsonArray>();
-  for (JsonObject obj : arr) {
-    Instance inst;
-    inst.name        = obj["name"] | "";
-    inst.url         = obj["url"] | "";
-    cfg.instances.push_back(inst);
-  }
+  setWifiConfig(buf.get());
+  setInstanceConfig(buf.get());
 
   return true;
 }
@@ -275,73 +256,62 @@ void setupWebServer() {
   /* 1. GET / – configuratieform  */
   server.on("/", HTTP_GET, []() {
     Serial.println("[INFO] GET / – serving config page");
-    // Temporary buffer for the final HTML (size depends on your use‑case)
-    // 4 kB is usually enough for a small configuration page
-    char html[4096];
-
-    // Build the static part and insert Wi‑Fi values
-    snprintf_P(html, sizeof(html), pageTemplate,
-              cfg.wifi_ssid.c_str(),          // %s  – SSID
-              cfg.wifi_pass.c_str(),          // %s  – password
-              cfg.pollInterval);              // %d  – poll interval
-
-    // Append instance blocks – we need a buffer that can hold one block
-    char block[512];
-    size_t used = strlen(html);              // current length of html
-
-    for (size_t i = 0; i < cfg.instances.size(); ++i) {
-      const auto &inst = cfg.instances[i];
-      // %d is used for the instance number (i+1)
-      snprintf(block, sizeof(block),
-              "<h3>Instance %d</h3>\n<label>Name: <input type=\"text\" name=\"name%d\" value=\"%s\" /></label><br/>\n<label>URL: <input type=\"text\" name=\"url%d\" value=\"%s\" /></label><br/>",
-              (int)i + 1, // instance header
-              (int)i, inst.name.c_str(),
-              (int)i, inst.url.c_str());
-
-      // Ensure we don't overflow the final buffer
-      if (used + strlen(block) < sizeof(html)) {
-        strcpy(html + used, block);
-        used += strlen(block);
-      } else {
-        // In a real project you should handle the overflow case
-        break;
-      }
+    if (!SPIFFS.exists("/index.html")) {
+      server.send(404, "text/plain", "File not found");
+      Serial.println("[ERROR] GET / – config page not found on fs");
+      return;
     }
-
-    // Finally send the page
-    server.send(200, "text/html", html);
+    File indexFile = SPIFFS.open("/index.html", "r");
+    server.streamFile(indexFile, "text/html", false);
+    indexFile.close();
   });
 
-  /* 2. POST /config – verwerking */
-  server.on("/config", HTTP_POST, []() {
-    Serial.println("[INFO] POST /config – processing form data");
-    cfg.wifi_ssid   = server.arg("ssid");
-    cfg.wifi_pass   = server.arg("pass");
-    cfg.pollInterval = server.arg("interval").toInt();
+  /* 2. GET /wifi - Return JSON object with wifi settings */
+  server.on("/wifi", HTTP_GET, []() {
+    Serial.println("[INFO] GET /wifi – returning wifi settings as JSON");
+    JsonDocument doc = getWifiConfig();
+    String wifiJSON;
+    serializeJson(doc, wifiJSON);
+    server.send(200, "application/json", wifiJSON);
+  });
 
-    // Bepaal hoeveel instanties er zijn (aantal “nameX”‑velden)
-    int instanceCount = 0;
-    for (int i = 0; i < server.args(); ++i) {
-      String key = server.argName(i);
-      if (key.startsWith("name") && key.length() > 4) {
-        int idx = key.substring(4).toInt();
-        instanceCount = max(instanceCount, idx + 1);
-      }
-    }
+  /* 2. GET /instances - Return JSON array with all instances */
+  server.on("/instances", HTTP_GET, []() {
+    Serial.println("[INFO] GET /instances – returning Uptime Kuma instances as JSON");
+    JsonDocument doc;
+    doc = getInstancesConfig(doc);
+    String instancesJSON;
+    serializeJson(doc, instancesJSON);
+    server.send(200, "application/json", instancesJSON);
+  });
 
-    cfg.instances.clear();
-    for (int i = 0; i < instanceCount; ++i) {
-      Instance inst;
-      inst.name       = server.arg("name"  + String(i));
-      inst.url        = server.arg("url"   + String(i));
-      cfg.instances.push_back(inst);
-    }
+  /* 3. POST /wifi – Process incoming JSON array with instances */
+  server.on("/wifi", HTTP_POST, []() {
+    Serial.println("[INFO] POST /wifi – processing wifi settings");
 
-    writeConfig();   // opslaan naar SPIFFS
+    String body = server.arg("plain");
+    Serial.println("[DEBUG] Body: " + body);
+    setWifiConfig(body.c_str()); // Set to memory
+    writeConfig(); // Write to SPIFFS
+
     server.send(200, "text/plain",
-                "Config saved. ESP32 will reboot in 3s…");
+                "Config saved. ESP32 will reboot in 3s...");
     delay(3000);
+    Serial.println("[INFO] Rebooting to apply new wifi configuration");
     ESP.restart();
+  });
+
+  /* 3. POST /instances – Process incoming JSON array with instances */
+  server.on("/instances", HTTP_POST, []() {
+    Serial.println("[INFO] POST /instances – processing instances");
+
+    String body = server.arg("plain");
+    Serial.println("[DEBUG] Body: " + body);
+    setInstanceConfig(body.c_str()); // Set to memory
+    writeConfig(); // Write to SPIFFS
+
+    server.send(200, "text/plain",
+                "Config saved.");
   });
 
   /* 3. POST /reboot – handmatig herstarten */
