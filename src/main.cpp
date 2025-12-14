@@ -4,6 +4,7 @@
 #include "wifi_manager.h"
 #include "led_manager.h"
 #include "web_server.h"
+#include "monitor_manager.h"
 
 /* ----------- Global objects --------------------------------- */
 Config cfg;
@@ -13,30 +14,36 @@ ConfigManager configManager(cfg);
 WiFiManager wifiManager(cfg, ledState);
 LedManager ledManager(ledState);
 WebServerManager webServer(cfg, configManager);
+MonitorManager monitorManager(cfg, ledState);
 
-/* ----------- Externe LED manager pointer -------------------- */
+/* ----------- External manager pointers ---------------------- */
 extern LedManager* g_ledManager;
+extern MonitorManager* g_monitorManager;
 
 /* ----------- setup ------------------------------------------ */
 void setup() {
   Serial.begin(115200);
   Serial.println();
 
-  // Configuratie laden
+  // Load configuration
   configManager.readConfig();
 
-  // LEDs initialiseren
+  // Initialize LEDs
   ledManager.setup();
 
   // WiFi setup
   wifiManager.setup();
 
-  // Webserver starten
+  // Start webserver
   webServer.setup();
 
-  // LED task starten (FreeRTOS)
+  // Start LED task (FreeRTOS)
   g_ledManager = &ledManager;
   xTaskCreatePinnedToCore(ledTaskFunc, "LedTask", 2048, NULL, 1, NULL, 0);
+
+  // Start monitoring task (FreeRTOS)
+  g_monitorManager = &monitorManager;
+  xTaskCreatePinnedToCore(pollTaskFunc, "PollTask", 8192, NULL, 2, NULL, 1);
 }
 
 /* ----------- loop ------------------------------------------- */
