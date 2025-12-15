@@ -27,6 +27,8 @@ void WiFiManager::setup() {
     return;
   }
 
+  _ledState.builtinOn = true;
+
   int attempt = 0;
   WiFi.begin(_cfg.wifi_ssid.c_str(), _cfg.wifi_pass.c_str());
   Serial.print("[INFO] Connecting to WiFi network: " + _cfg.wifi_ssid);
@@ -42,6 +44,6 @@ void WiFiManager::setup() {
     startHotspot();
   } else {
     Serial.println("\n[INFO] WiFi connected, IP: " + WiFi.localIP().toString());
-    _ledState.builtinOn = true;
+    _ledState.builtinOn = false;
   }
 }
