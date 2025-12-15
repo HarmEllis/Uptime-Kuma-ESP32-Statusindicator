@@ -12,6 +12,7 @@ public:
   
   void setup();
   void handleClient();
+  bool checkAuth();
   
 private:
   Config& _cfg;
