@@ -5,6 +5,7 @@
 #include "led_manager.h"
 #include "web_server.h"
 #include "monitor_manager.h"
+#include "mdns_manager.h"
 
 /* ----------- Global objects --------------------------------- */
 Config cfg;
@@ -36,6 +37,13 @@ void setup() {
 
   // Start webserver
   webServer.setup();
+
+  // Start mDNS
+  if (MDNSManager::begin(MDNS_HOSTNAME)) {
+    MDNSManager::addService("http", "tcp", 80);
+  } else {
+    Serial.println("Failed to initialize mDNS!");
+  }
 
   // Start LED task (FreeRTOS)
   g_ledManager = &ledManager;

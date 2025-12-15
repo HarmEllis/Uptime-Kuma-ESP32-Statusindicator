@@ -20,6 +20,9 @@ constexpr uint8_t WIFI_CONNECT_TIMEOUT = 30; // seconden
 constexpr const char* WEB_USER = "UptimeKumaMonitorAdmin";
 constexpr const char* WEB_PASSWORD = "gH!cwb#3SR(7bY";
 
+// mDNS hostname - device will be accessible at http://esp-uptimemonitor.local
+constexpr const char* MDNS_HOSTNAME = "esp-uptimemonitor";
+
 /* ----------- LED Constants ------------------------------------------------------ */
 #define LED_ON HIGH
 #define LED_OFF LOW
