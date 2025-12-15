@@ -9,7 +9,7 @@
 
 struct MonitorResult {
   bool apiReachable = false;
-  bool apiKeyValid = false;
+  bool apiKeyValid = true;
   int monitorsUp = 0;
   int monitorsDown = 0;
 };

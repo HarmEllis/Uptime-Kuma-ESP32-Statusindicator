@@ -24,7 +24,9 @@ void MonitorManager::pollAllInstances() {
     Serial.printf("Monitors up:   %d\n", result.monitorsUp);
     Serial.printf("Monitors down: %d\n", result.monitorsDown);
     
-    if (!result.apiReachable) {
+    if (!result.apiKeyValid) {
+      Serial.println("!! API-Key invalid or no monitors configured !!");
+    } else if (!result.apiReachable) {
       Serial.println("!! Instance is UNREACHABLE !!");
     } else if (result.monitorsDown > 0) {
       Serial.println("!! One or more monitors are DOWN !!");
@@ -65,7 +67,7 @@ MonitorResult MonitorManager::fetchMetrics(const Instance& instance) {
 
   int httpCode = http.GET();
   
-  if (httpCode > 0) {
+  if (httpCode == 200) {
     result.apiReachable = true;
     String payload = http.getString();
 
@@ -74,6 +76,8 @@ MonitorResult MonitorManager::fetchMetrics(const Instance& instance) {
 
     // If API key was used, valid gauge indicates it works
     result.apiKeyValid = (result.monitorsUp + result.monitorsDown) > 0;
+  } else if (httpCode == 401) {
+    result.apiKeyValid = false;
   } else {
     // HTTP error - could not reach the endpoint
     result.apiReachable = false;
@@ -140,13 +144,18 @@ void MonitorManager::parseMetrics(const String& data, MonitorResult& result) {
 }
 
 void MonitorManager::updateLEDState(const std::vector<MonitorResult>& results) {
-  bool anyUnreachable = false;
-  bool anyDown = false;
-  bool allUp = true;
+  bool anyUnreachable   = false;
+  bool anyDown          = false;
+  bool anyApiKeyInvalid = false;
+  bool allUp            = true;
 
   // Check all results
-  for (const auto& result : results) {
-    if (!result.apiReachable) {
+  for (const auto& result : results)
+  {
+    if (!result.apiKeyValid) {
+      anyApiKeyInvalid = true;
+      allUp = false;
+    } else if (!result.apiReachable) {
       anyUnreachable = true;
       allUp = false;
     } else if (result.monitorsDown > 0) {
@@ -156,27 +165,30 @@ void MonitorManager::updateLEDState(const std::vector<MonitorResult>& results) {
   }
 
   // Update LED state based on priority:
-  // 1. Unreachable (highest priority) -> Red blinking
-  // 2. Monitors down -> Red solid
-  // 3. All up -> Green solid
-  
-  if (anyUnreachable) {
-    // Red blinking - instance unreachable
-    _ledState.greenOn = false;
+  // 1. API key invalid      -> Red blinking
+  // 2. Instance unreachable -> Red blinking
+  // 3. Monitors down        -> Red solid
+  // 4. All up               -> Green solid
+
+  if (anyApiKeyInvalid) {
+    _ledState.greenOn  = false;
     _ledState.redBlink = true;
-    _ledState.redOn = true;
+    _ledState.redOn    = true;
+    Serial.println("[LED] Status: RED BLINKING (API key invalid)");
+  } else if (anyUnreachable) {
+    _ledState.greenOn  = false;
+    _ledState.redBlink = true;
+    _ledState.redOn    = true;
     Serial.println("[LED] Status: RED BLINKING (instance unreachable)");
   } else if (anyDown) {
-    // Red solid - one or more monitors down
-    _ledState.greenOn = false;
+    _ledState.greenOn  = false;
     _ledState.redBlink = false;
-    _ledState.redOn = true;
+    _ledState.redOn    = true;
     Serial.println("[LED] Status: RED SOLID (monitors down)");
   } else if (allUp) {
-    // Green solid - all monitors up
-    _ledState.greenOn = true;
+    _ledState.greenOn  = true;
     _ledState.redBlink = false;
-    _ledState.redOn = false;
+    _ledState.redOn    = false;
     Serial.println("[LED] Status: GREEN (all monitors up)");
   }
 }
