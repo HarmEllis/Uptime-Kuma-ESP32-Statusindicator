@@ -6,17 +6,17 @@
 #include <IPAddress.h>
 
 /* ----------- WiFi Hotspot Constants --------------------------------------------- */
-constexpr const char* AP_SSID = "ESP32_Hotspot";
+constexpr const char* AP_SSID = "UptimeKumaMonitor";
 constexpr const char* AP_PASSWORD = "FFzppG3oJ76PRs";
 constexpr uint8_t AP_CHANNEL = 6;
 const IPAddress AP_IP = IPAddress(192, 168, 4, 1);
 const IPAddress AP_GATEWAY = AP_IP;
 const IPAddress AP_SUBNET = IPAddress(255, 255, 255, 0);
 
-/* ----------- WiFi Constant ------------------------------------------------------ */
+/* ----------- WiFi Constants ----------------------------------------------------- */
 constexpr uint8_t WIFI_CONNECT_TIMEOUT = 30; // seconden
 
-/* ----------- Web server  -------------------------------------------------------- */
+/* ----------- Web server constants ----------------------------------------------- */
 constexpr const char* WEB_USER = "UptimeKumaMonitorAdmin";
 constexpr const char* WEB_PASSWORD = "gH!cwb#3SR(7bY";
 
@@ -31,8 +31,8 @@ constexpr const char* MDNS_HOSTNAME = "esp-uptimemonitor";
 #define LED_BUILTIN 2 // GPIO2 for most ESP32 boards
 #endif
 
-constexpr uint8_t GREEN_PIN = 22; // GPIO-pin groene LED
-constexpr uint8_t RED_PIN = 23;   // GPIO-pin rode LED
+constexpr uint8_t GREEN_PIN = 22; // GPIO-pin
+constexpr uint8_t RED_PIN = 23;   // GPIO-pin
 constexpr uint16_t BLINK_INTERVAL_MS = 500;
 
 /* ----------- Structs ----------------------------------------------------------- */
@@ -46,7 +46,7 @@ struct Instance {
 struct Config {
   String wifi_ssid;
   String wifi_pass;
-  uint16_t pollInterval = 15; // seconden
+  uint16_t pollInterval = 15; // seconds
   std::vector<Instance> instances;
 };
 
